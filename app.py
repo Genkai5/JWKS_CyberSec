@@ -5,26 +5,28 @@ from flask import Flask, jsonify, request
 
 from key_manager import generate_key, key_to_jwk
 
-app = Flask(__name__) #creates web server
+app = Flask(__name__) 
 
-# creates two keys (one expired one not)
 normal_key = generate_key()
 expired_key = generate_key(expired=True)
 
 #creates end point
 @app.route("/.well-known/jwks.json", methods=["GET"])
 def jwks():
+    """Return all currently valid public keys as JWKS."""
     keys = []
 
-    #checks both keys
+    #Checks both keys if expired
     for key in [normal_key, expired_key]:
         if not key.is_expired():
             keys.append(key_to_jwk(key))
 
-    return jsonify({"keys": keys}) #turns dictionary into JSON
+    #turns dictionary into JSON
+    return jsonify({"keys": keys}) 
 
 @app.route("/auth", methods=["POST"])
 def auth():
+    """Create and return a JWT signed with an RSA private key."""
     if "expired" in request.args:
         key = expired_key
     else:
