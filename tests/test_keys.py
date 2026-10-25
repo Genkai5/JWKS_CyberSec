@@ -25,7 +25,7 @@ def test_jwk_contains_required_fields():
     jwk = key_to_jwk(key)
 
     assert jwk["kty"] == "RSA"
-    assert jwk["kid"] == key.kid
+    assert jwk["kid"] == str(key.kid)
     assert jwk["use"] == "sig"
     assert jwk["alg"] == "RS256"
     assert "n" in jwk

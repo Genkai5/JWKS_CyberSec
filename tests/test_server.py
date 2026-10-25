@@ -1,54 +1,76 @@
+
 import jwt
+import pytest
 
-from app import app, expired_key, normal_key
+import app
+import key_manager
 
 
-def test_jwks_returns_only_unexpired_keys():
-    client = app.test_client()
+@pytest.fixture
+def client(tmp_path, monkeypatch):
+    """Set up a separate database for each test."""
+    monkeypatch.setattr(
+        key_manager,
+        "DB_FILE",
+        str(tmp_path / "test_keys.db")
+    )
 
+    key_manager.initialize_db()
+    key_manager.ensure_keys()
+
+    app.app.config["TESTING"] = True
+
+    with app.app.test_client() as test_client:
+        yield test_client
+
+
+def test_jwks_returns_only_unexpired_keys(client):
     response = client.get("/.well-known/jwks.json")
 
     assert response.status_code == 200
 
     data = response.get_json()
+    assert len(data["keys"]) >= 1
 
-    assert len(data["keys"]) == 1
-    assert data["keys"][0]["kid"] == normal_key.kid
+    # Every key returned by JWKS should be unexpired.
+    valid_keys = key_manager.get_valid_keys()
+    valid_kids = [str(key.kid) for key in valid_keys]
+
+    for jwk in data["keys"]:
+        assert jwk["kid"] in valid_kids
+        assert "d" not in jwk
 
 
-def test_auth_returns_token():
-    client = app.test_client()
+def test_auth_returns_token(client):
+    response = client.post("/auth")
 
+    assert response.status_code == 200
+    assert "token" in response.get_json()
+
+
+def test_auth_token_has_correct_kid(client):
     response = client.post("/auth")
 
     assert response.status_code == 200
 
-    data = response.get_json()
-
-    assert "token" in data
-
-
-def test_auth_token_has_correct_kid():
-    client = app.test_client()
-
-    response = client.post("/auth")
-
     token = response.get_json()["token"]
-
     header = jwt.get_unverified_header(token)
 
-    assert header["kid"] == normal_key.kid
+    normal_key = key_manager.get_key()
+
+    assert normal_key is not None
+    assert header["kid"] == str(normal_key.kid)
 
 
-def test_expired_auth_uses_expired_key():
-    client = app.test_client()
-
+def test_expired_auth_uses_expired_key(client):
     response = client.post("/auth?expired=true")
 
     assert response.status_code == 200
 
     token = response.get_json()["token"]
-
     header = jwt.get_unverified_header(token)
 
-    assert header["kid"] == expired_key.kid
+    expired_key = key_manager.get_key(expired=True)
+
+    assert expired_key is not None
+    assert header["kid"] == str(expired_key.kid)
